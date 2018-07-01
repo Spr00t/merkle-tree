@@ -32,4 +32,6 @@ fn main() {
         value.extend(md5::compute(data).iter());
         value
     });
+    println!("Goodbye , world!");
+
 }

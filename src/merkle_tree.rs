@@ -1,56 +1,60 @@
 use std::rc::Rc;
 use std::fmt::Display;
-use std::mem::discriminant;
+use std::convert::From;
+use std::mem::replace;
+
 type THash = Vec<u8>;
 
+#[derive(Debug)]
 struct MerkleLeaf<T> {
     data: T,
     hash: THash
 }
 
+impl<T> Clone for MerkleLeaf<T> 
+    where T:Clone 
+{
+    fn clone(&self) ->  MerkleLeaf<T> 
+    {
+        MerkleLeaf {
+            data: self.data.clone(),
+            hash: self.hash.clone()
+        }
+    }
+}
+#[derive(Debug)]
 struct MerkleNode<T> {
-    sons: [Rc<MerkleNode<T>>; 2],
+    sons: [Rc<MerkleKnot<T>>; 2],
     hash: THash,
     items_count: usize
+}
+
+
+impl<T> Clone for MerkleNode<T> 
+    where T:Clone 
+{
+    fn clone(&self) ->  MerkleNode<T> 
+    {
+        MerkleNode {
+            sons: self.sons.clone(),
+            hash: self.hash.clone(),
+            items_count: self.items_count
+        }
+    }
 }
 
 #[allow(dead_code)]
 #[derive(Debug)]
 pub enum MerkleKnot<T> 
 {
-    Leaf(MerkleLeaf),
-    Node(MerkleNode),
+    Leaf(MerkleLeaf<T>),
+    Node(MerkleNode<T>),
     Nil
-}
-//MerkleNode
-impl<T> Clone for MerkleNode<T> 
-    where T:Clone
-{
-    fn clone(&self) -> MerkleNode<T> {
-        match self {
-            MerkleNode::Leaf{data, hash} => {
-                return MerkleNode::Leaf {
-                    data: (*data).clone(),
-                    hash: hash.clone()
-                };
-            },
-            MerkleNode::Node{sons, hash, items_count} => {
-                return MerkleNode::Node {
-                    sons: [sons[0].clone(), sons[1].clone()],
-                    hash: hash.clone(),
-                    items_count: *items_count
-                };
-            },
-            MerkleNode::Nil => {
-                return MerkleNode::Nil;
-            },
-        }
-    }
 }
 
 
 pub struct MerkleTree<T> {
-    pub root: MerkleNode<T>
+    pub root: MerkleKnot<T>
 }
 
 impl<T> MerkleTree<T> 
@@ -60,13 +64,16 @@ impl<T> MerkleTree<T>
         where T: AsRef<[u8]> 
     {
         MerkleTree::<T> {
-            root: MerkleNode::Nil
+            root: MerkleKnot::Nil
         }
     }
     pub fn insert<F>(&mut self, t: T, f: F)
         where F: FnMut(&[u8]) -> Vec<u8>, T: AsRef<[u8]>
     {
-        insert(&mut self.root, t, f);
+        let mut knot: MerkleKnot<T> = replace(&mut self.root, MerkleKnot::Nil);
+        knot = insert(knot, t, f);
+        replace(&mut self.root, knot);
+
     }
 }
 
@@ -80,23 +87,22 @@ pub fn leaf_to_xml<T, F>( data: T, hash: THash) -> String
 }
 
 #[allow(dead_code)]
-pub fn to_xml<T, F>(node: &MerkleNode<T>, t: T, mut f: F)
+fn to_xml<T, F>(node: &MerkleNode<T>, t: T, mut f: F)
 {
     
 }
 
 #[allow(dead_code)]
-pub fn create_node_from_data<T, F>( item: T, opt_hash: Option<THash>, f: &mut F) -> MerkleNode<T>
+fn create_leaf_from_data<T, F>( item: T, opt_hash: Option<THash>, f: &mut F) -> MerkleLeaf<T>
     where F: FnMut(&[u8]) -> Vec<u8>, T: AsRef<[u8]> + Clone
 {
     if let Some(hash) = opt_hash {
-        MerkleNode::Leaf {
+        MerkleLeaf {
             data: item,
             hash: hash
         }
     } else {
-        
-        MerkleNode::Leaf {
+        MerkleLeaf {
             data: item.clone(),
             hash: f(item.as_ref())
         }
@@ -104,55 +110,73 @@ pub fn create_node_from_data<T, F>( item: T, opt_hash: Option<THash>, f: &mut F)
 }
 
 #[allow(dead_code)]
-pub fn create_node_from_leaf<T, F>(leaf: MerkleLeaf<T>, f: &mut F) -> MerkleNode<T>
+fn create_node_from_leaf<T, F>(leaf: MerkleLeaf<T>, data: T, f: &mut F) -> MerkleNode<T>
     where F: FnMut(&[u8]) -> Vec<u8>, T: AsRef<[u8]> + Clone
 {
-    MerkleNode::Nil
+    let mut sons = [Rc::from(MerkleKnot::Nil), Rc::from(MerkleKnot::Nil)];
+    let hash: THash;
+    let items_count: usize;
+
+
+    let mut combined_hash: Vec<u8> = leaf.hash.clone();
+
+    let right_leaf: MerkleLeaf<T> = create_leaf_from_data(data, None, f);
+
+    combined_hash.extend(&right_leaf.hash); 
+
+    hash = combined_hash;
+    items_count = 2;
+
+    sons[0] = Rc::from(MerkleKnot::Leaf(leaf));
+    sons[1] = Rc::from(MerkleKnot::Leaf(right_leaf));
+
+    MerkleNode {
+        sons: sons,
+        hash: hash,
+        items_count: items_count
+    }
+}
+
+fn create_node_from_node<T, F>(node: MerkleNode<T>, data: T, f: &mut F) -> MerkleNode<T>
+    where F: FnMut(&[u8]) -> Vec<u8>, T: AsRef<[u8]> + Clone
+{
+    let mut sons = [Rc::from(MerkleKnot::Nil), Rc::from(MerkleKnot::Nil)];
+    let hash: THash;
+    let items_count: usize;
+
+
+    let mut combined_hash: Vec<u8> = node.hash.clone();
+
+    let right_leaf: MerkleLeaf<T> = create_leaf_from_data(data, None, f);
+
+    combined_hash.extend(&right_leaf.hash); 
+
+    hash = combined_hash;
+    items_count = node.items_count + 1;
+
+    sons[0] = Rc::from(MerkleKnot::Node(node));
+    sons[1] = Rc::from(MerkleKnot::Leaf(right_leaf));
+
+    MerkleNode {
+        sons: sons,
+        hash: hash,
+        items_count: items_count
+    }
 }
 
 
-pub fn insert<T, F>(node: &mut MerkleNode<T>, t: T, mut f: F)
+pub fn insert<T, F>(node: MerkleKnot<T>, t: T, mut f: F) -> MerkleKnot<T>
     where F: FnMut(&[u8]) -> Vec<u8>, T: AsRef<[u8]> + Clone
 {
-
     match node {
-        MerkleNode::Leaf(_) => {
-            unreachable!();
+        MerkleKnot::Leaf(leaf) => {
+            MerkleKnot::Node(create_node_from_leaf(leaf, t, &mut f))
         },
-        MerkleNode::Nil => {
-            unreachable!();
+        MerkleKnot::Nil => {
+             MerkleKnot::Leaf(create_leaf_from_data(t, None, &mut f))
         },
-        MerkleNode::Node(ref mut node) => {
-
-            let leaf_data: T;
-            let leaf_hash: THash;
-            
-            let son: Rc<MerkleNode<T>> = Rc::clone(&sons[0]);
-            match *son {
-                MerkleNode::Leaf{ref data, ref hash} => {
-                    let mut combined_hash: Vec<u8> = hash.clone();
-                    leaf_data = data.clone();
-                    leaf_hash = hash.clone();
-                    let left_son: MerkleNode<T> = create_node_from_data(leaf_data, Some(leaf_hash), &mut f);
-
-                    let right_hash: Vec<u8> = f(t.as_ref());
-                    let right_son: MerkleNode<T> = create_node_from_data(t.clone(), Some(right_hash.clone()), &mut f);
-
-                    combined_hash.extend(right_hash);
-
-                    sons[0] = Rc::new(MerkleNode::Node {
-                        sons: [Rc::new(MerkleNode::Nil), Rc::new(MerkleNode::Nil)],
-                        hash: combined_hash,
-                        items_count: *items_count
-                    });
-                },
-                MerkleNode::Nil => {
-                    unreachable!();
-                },
-                MerkleNode::Node{ref sons, ref hash, ref items_count} => {
-                    unreachable!();
-                }
-            }
+        MerkleKnot::Node(node) => {
+            unreachable!();
         }
     }
 }
