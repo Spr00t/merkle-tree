@@ -25,13 +25,15 @@ impl AsRef<[u8]> for Data {
 
 fn main() {
     println!("Hello, world!");
-    let mut mtree = MerkleTree::<Data>::new();
-    let val = Data {data: vec![1,2,3]};
-    mtree.insert(val, |data: &[u8]| {
+    let mut mtree = MerkleTree::<Data>::new(Box::new(|data: &[u8]| {
         let mut value = Vec::<u8>::new();
         value.extend(md5::compute(data).iter());
         value
-    });
+    }));
+    let mut val = Data {data: vec![1,2,3]};
+    mtree.insert(val);
+    val = Data {data: vec![2]};
+    mtree.insert(val);
     println!("Goodbye , world!");
 
 }
