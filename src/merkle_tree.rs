@@ -1,8 +1,10 @@
 use std::rc::Rc;
-use std::fmt::Display;
+use std::fmt;
+use std::fmt::{Display, Write, Formatter};
 use std::convert::From;
 use std::mem::replace;
 use std::ops::IndexMut;
+use std::string::ToString;
 
 type THash = Vec<u8>;
 
@@ -53,7 +55,37 @@ pub enum MerkleKnot<T>
     Nil
 }
 
+impl<T> Display for MerkleKnot<T>
+    where T: Display
+{
+    
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let mut buf = String::new();
+        match self {
+            MerkleKnot::Leaf(leaf) => {
+                buf.write_fmt(format_args!("<leaf><data>{}</data> <hash>{:?}</hash></leaf>", &leaf.data, &leaf.hash)).unwrap();        
+            },
+            MerkleKnot::Nil => {
+                buf.write_str("<NUL/>").unwrap();        
+            },
+            MerkleKnot::Node(node) => {
+                buf.write_fmt(format_args!("<node>\n<left_son>{}</left_son>\n<right_son>{}</right_son><hash>{:x?}</hash></node>", &*node.sons[0], &*node.sons[1], &node.hash)).unwrap();
+            }
+        }
 
+        buf.shrink_to_fit();
+        write!(f, "{}", buf)
+    }
+}
+impl<T> Display for MerkleTree<T>
+    where T: Display
+{
+    
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        
+        write!(f, "{}", &self.root)
+    }
+}
 pub struct MerkleTree<T> {
     pub root: MerkleKnot<T>,
     hasher: Box<FnMut(&[u8]) -> Vec<u8>>
@@ -81,7 +113,7 @@ impl<T> MerkleTree<T>
 }
 
 #[allow(dead_code)]
-pub fn leaf_to_xml<T, F>( data: T, hash: THash) -> String
+pub fn leaf_to_xml<T, F>( data: T) -> String
     where T: AsRef<[u8]> + Clone + Display
 {
     let mut result = String::new();
@@ -90,11 +122,32 @@ pub fn leaf_to_xml<T, F>( data: T, hash: THash) -> String
 }
 
 #[allow(dead_code)]
-fn to_xml<T, F>(node: &MerkleNode<T>, t: T, mut f: F) -> String
+fn leaf_t_xml<T, F>(node: &MerkleNode<T>) -> String
 {
-    
-
+    let mut result = String::new();
+    result.push_str("<leaf>");
+    result
 }
+
+// #[allow(dead_code)]
+// fn knot_to_xml<T, F>(knot: &MerkleKnot<T>) -> String
+// {
+//     let mut result = String::new();
+//       match node {
+//         MerkleKnot::Leaf(leaf) => {
+//             MerkleKnot::Node(create_node_from_leaf(leaf, t, &mut f))
+//         },
+//         MerkleKnot::Nil => {
+//              MerkleKnot::Leaf(create_leaf_from_data(t, None, &mut f))
+//         },
+//         MerkleKnot::Node(node) => {
+//             MerkleKnot::Node(insert_to_node(node, t, &mut f))
+//         }
+//     }
+
+//     result.push_str("<leaf>");
+//     result
+// }
 
 #[allow(dead_code)]
 fn create_leaf_from_data<T, F>( item: T, opt_hash: Option<THash>, f: &mut F) -> MerkleLeaf<T>
