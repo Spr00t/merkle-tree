@@ -47,6 +47,9 @@ fn main() {
 
     val = Data {data: vec![2]};
     mtree.insert(val);
+    
+    val = Data {data: vec![3]};
+    mtree.insert(val);
     println!("{}", mtree);
     println!("Goodbye , world!");
 

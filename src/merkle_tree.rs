@@ -1,10 +1,8 @@
-use std::rc::Rc;
+use std::rc::{Rc, Weak};
 use std::fmt;
-use std::fmt::{Display, Write, Formatter};
+use std::fmt::{Display, Write};
 use std::convert::From;
 use std::mem::replace;
-use std::ops::IndexMut;
-use std::string::ToString;
 
 type THash = Vec<u8>;
 
@@ -28,6 +26,7 @@ impl<T> Clone for MerkleLeaf<T>
 #[derive(Debug)]
 struct MerkleNode<T> {
     sons: [Rc<MerkleKnot<T>>; 2],
+    parent: Weak<MerkleKnot<T>>,
     hash: THash,
     items_count: usize
 }
@@ -40,6 +39,7 @@ impl<T> Clone for MerkleNode<T>
     {
         MerkleNode {
             sons: self.sons.clone(),
+            parent: self.parent.clone(),
             hash: self.hash.clone(),
             items_count: self.items_count
         }
@@ -63,13 +63,13 @@ impl<T> Display for MerkleKnot<T>
         let mut buf = String::new();
         match self {
             MerkleKnot::Leaf(leaf) => {
-                buf.write_fmt(format_args!("<leaf><data>{}</data> <hash>{:?}</hash></leaf>", &leaf.data, &leaf.hash)).unwrap();        
+                buf.write_fmt(format_args!("<leaf>\n<data>{}</data>\n<hash>{:x?}</hash>\n</leaf>\n", &leaf.data, &leaf.hash)).unwrap();        
             },
             MerkleKnot::Nil => {
-                buf.write_str("<NUL/>").unwrap();        
+                buf.write_str("<NUL/>\n").unwrap();        
             },
             MerkleKnot::Node(node) => {
-                buf.write_fmt(format_args!("<node>\n<left_son>{}</left_son>\n<right_son>{}</right_son><hash>{:x?}</hash></node>", &*node.sons[0], &*node.sons[1], &node.hash)).unwrap();
+                buf.write_fmt(format_args!("<node>\n<left_son>\n{}</left_son>\n<right_son>\n{}</right_son>\n<hash>{:x?}</hash>\n</node>\n", &*node.sons[0], &*node.sons[1], &node.hash)).unwrap();
             }
         }
 
@@ -122,34 +122,6 @@ pub fn leaf_to_xml<T, F>( data: T) -> String
 }
 
 #[allow(dead_code)]
-fn leaf_t_xml<T, F>(node: &MerkleNode<T>) -> String
-{
-    let mut result = String::new();
-    result.push_str("<leaf>");
-    result
-}
-
-// #[allow(dead_code)]
-// fn knot_to_xml<T, F>(knot: &MerkleKnot<T>) -> String
-// {
-//     let mut result = String::new();
-//       match node {
-//         MerkleKnot::Leaf(leaf) => {
-//             MerkleKnot::Node(create_node_from_leaf(leaf, t, &mut f))
-//         },
-//         MerkleKnot::Nil => {
-//              MerkleKnot::Leaf(create_leaf_from_data(t, None, &mut f))
-//         },
-//         MerkleKnot::Node(node) => {
-//             MerkleKnot::Node(insert_to_node(node, t, &mut f))
-//         }
-//     }
-
-//     result.push_str("<leaf>");
-//     result
-// }
-
-#[allow(dead_code)]
 fn create_leaf_from_data<T, F>( item: T, opt_hash: Option<THash>, f: &mut F) -> MerkleLeaf<T>
     where F: FnMut(&[u8]) -> Vec<u8>, T: AsRef<[u8]> + Clone
 {
@@ -181,7 +153,7 @@ fn create_node_from_leaf<T, F>(leaf: MerkleLeaf<T>, data: T, f: &mut F) -> Merkl
 
     combined_hash.extend(&right_leaf.hash); 
 
-    hash = combined_hash;
+    hash = f(&combined_hash);
     items_count = 2;
 
     sons[0] = Rc::from(MerkleKnot::Leaf(leaf));
@@ -189,6 +161,7 @@ fn create_node_from_leaf<T, F>(leaf: MerkleLeaf<T>, data: T, f: &mut F) -> Merkl
 
     MerkleNode {
         sons: sons,
+        parent: Weak::<MerkleKnot<T>>::new(),
         hash: hash,
         items_count: items_count
     }
@@ -213,7 +186,7 @@ fn insert_to_node<T, F>(mut node: MerkleNode<T>, data: T, f: &mut F) -> MerkleNo
     }).collect();
 
     let insert_index = 
-    if counts[0] < counts[1] {
+    if counts[0] <= counts[1] {
         0
     } else {
         1
@@ -229,7 +202,7 @@ fn insert_to_node<T, F>(mut node: MerkleNode<T>, data: T, f: &mut F) -> MerkleNo
     match owned_node {
         MerkleKnot::Leaf(leaf) => {
             let m_node: Rc<MerkleKnot<T>> = Rc::from(MerkleKnot::Node(create_node_from_leaf(leaf, data, f)));
-            
+            //m_node.parent
             node.sons[insert_index] = m_node;
         },
         MerkleKnot::Nil => {
